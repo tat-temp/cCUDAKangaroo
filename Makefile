@@ -22,7 +22,7 @@ CU_OBJECTS  := $(GPU_SRC:.cu=.o)
 
 TARGET := cCUDAKangaroo
 
-.PHONY: all clean
+.PHONY: all clean ptxinfo
 
 all: $(TARGET)
 
@@ -35,5 +35,13 @@ $(TARGET): $(CPP_OBJECTS) $(CU_OBJECTS)
 %.o: %.cu $(HDRS)
 	$(NVCC) $(NVCCFLAGS) -c $< -o $@
 
+# ---- Codegen inspection (no effect on the shipped binary), like cCUDA's ptxinfo target ----
+# Verbose ptxas resource report -- registers/thread, spill stores/loads, stack frame -- for
+# every kernel, printed once per target arch. All device kernels live in RCGpuCore.cu, so
+# compiling just that TU with the shipped flags yields the same usage as the release build.
+ptxinfo: $(GPU_SRC) $(HDRS)
+	$(NVCC) $(NVCCFLAGS) -Xptxas -v -c $(GPU_SRC) -o RCGpuCore-ptxinfo.o
+	@rm -f RCGpuCore-ptxinfo.o
+
 clean:
-	rm -f $(CPP_OBJECTS) $(CU_OBJECTS) $(TARGET)
+	rm -f $(CPP_OBJECTS) $(CU_OBJECTS) $(TARGET) RCGpuCore-ptxinfo.o
