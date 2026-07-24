@@ -24,7 +24,7 @@ typedef char i8;
 //must be divisible by MD_LEN
 #define STEP_CNT			1000
 
-#define JMP_CNT				1024
+#define JMP_CNT				512
 
 //can be 8, 16, 24, 32
 #define PNT_GROUP_NEW_GPU	32
