@@ -27,7 +27,7 @@ extern __shared__ u64 LDS[];
 #ifndef OLD_GPU
 
 //this kernel performs main jumps
-extern "C" __launch_bounds__(BLOCK_SIZE, 1)
+extern "C" __launch_bounds__(BLOCK_SIZE, 2)
 __global__ void KernelA(const TKparams Kparams)
 {
 	u64* L2x = Kparams.L2 + 2 * THREAD_X + 4 * BLOCK_SIZE * BLOCK_X;

@@ -22,16 +22,16 @@ typedef char i8;
 #define MAX_GPU_CNT			32
 
 //must be divisible by MD_LEN
-#define STEP_CNT			2000
+#define STEP_CNT			1000
 
 #define JMP_CNT				512
 
 //can be 8, 16, 24, 32
-#define PNT_GROUP_NEW_GPU	32
+#define PNT_GROUP_NEW_GPU	24
 //can be 8, 16, 24, 32, 40, 48, 56, 64
 #define PNT_GROUP_OLD_GPU	64
 
-#define BLOCK_SIZE_NEW_GPU	512
+#define BLOCK_SIZE_NEW_GPU	256
 #define BLOCK_SIZE_OLD_GPU	512
  
 //use different options for cards older than RTX 40xx
