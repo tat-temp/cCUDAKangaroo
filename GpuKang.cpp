@@ -490,7 +490,7 @@ void RCGpuKang::Execute()
 		if (!tm)
 			tm = 1;
 		int cur_speed = (int)(pnt_cnt / (tm * 1000));
-		//printf("GPU %d kernel time %d ms, speed %d MH\r\n", CudaIndex, (int)tm, cur_speed);
+		printf("GPU %d kernel time %d ms, speed %d MH\r\n", CudaIndex, (int)tm, cur_speed);
 
 		SpeedStats[cur_stats_ind] = cur_speed;
 		cur_stats_ind = (cur_stats_ind + 1) % STATS_WND_SIZE;
