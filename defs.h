@@ -31,7 +31,7 @@ typedef char i8;
 //can be 8, 16, 24, 32, 40, 48, 56, 64
 #define PNT_GROUP_OLD_GPU	64
 
-#define BLOCK_SIZE_NEW_GPU	256
+#define BLOCK_SIZE_NEW_GPU	512
 #define BLOCK_SIZE_OLD_GPU	512
  
 //use different options for cards older than RTX 40xx
