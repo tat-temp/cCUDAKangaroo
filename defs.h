@@ -22,9 +22,9 @@ typedef char i8;
 #define MAX_GPU_CNT			32
 
 //must be divisible by MD_LEN
-#define STEP_CNT			4000
+#define STEP_CNT			1000
 
-#define JMP_CNT				1024
+#define JMP_CNT				512
 
 //can be 8, 16, 24, 32
 #define PNT_GROUP_NEW_GPU	24

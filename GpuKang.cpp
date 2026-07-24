@@ -60,8 +60,10 @@ bool RCGpuKang::Prepare(EcPoint _PntToSolve, int _Range, int _DP, EcJMP* _EcJump
 	u64 size;
 	if (!IsOldGpu)
 	{
-		//L2	
-		int L2size = Kparams.KangCnt * (3 * 32);
+		//L2: two 256-bit sections (x, y). The former 3rd section (Montgomery
+		//inversion scratch) now lives on KernelA's local stack, so the whole
+		//persisting-L2 window holds only the persistent walk state.
+		int L2size = Kparams.KangCnt * (2 * 32);
 		total_mem += L2size;
 		err = cudaMalloc((void**)&Kparams.L2, L2size);
 		if (err != cudaSuccess)

@@ -34,7 +34,10 @@ __global__ void KernelA(const TKparams Kparams)
 {
 	u64* L2x = Kparams.L2 + 2 * THREAD_X + 4 * BLOCK_SIZE * BLOCK_X;
 	u64* L2y = L2x + 4 * PNT_GROUP_CNT * BLOCK_CNT * BLOCK_SIZE;
-	u64* L2s = L2y + 4 * PNT_GROUP_CNT * BLOCK_CNT * BLOCK_SIZE;
+	//Montgomery batch-inversion prefix products: per-step scratch only, so keep it
+	//on the local stack instead of a 3rd persisting-L2 section that just polluted
+	//the cache reserved for the persistent x/y walk state.
+	__align__(16) u64 L2s[4 * PNT_GROUP_CNT];
 	//list of distances of performed jumps for KernelB
 	int4* jlist = (int4*)(Kparams.JumpsList + (u64)BLOCK_X * STEP_CNT * PNT_GROUP_CNT * BLOCK_SIZE / 4);
 	jlist += (THREAD_X / 32) * 32 * PNT_GROUP_CNT / 8;
@@ -94,7 +97,7 @@ __global__ void KernelA(const TKparams Kparams)
 		jmp_table = ((L1S2 >> 0) & 1) ? jmp2_table : jmp1_table;
 		Copy_int4_x2(jmp_x, jmp_table + 8 * jmp_ind);
 		SubModP(inverse, x, jmp_x);
-		SAVE_VAL_256(L2s, inverse, 0);
+		Copy_int4_x2(&L2s[0], inverse);
 		//the rest
 		
 		for (int group = 1; group < PNT_GROUP_CNT; group++)
@@ -105,7 +108,7 @@ __global__ void KernelA(const TKparams Kparams)
 			Copy_int4_x2(jmp_x, jmp_table + 8 * jmp_ind);
 			SubModP(tmp, x, jmp_x);
 			MulModP(inverse, inverse, tmp);
-			SAVE_VAL_256(L2s, inverse, group);
+			Copy_int4_x2(&L2s[4 * group], inverse);
 		}
 
 		InvModP((u32*)inverse);
@@ -130,7 +133,7 @@ __global__ void KernelA(const TKparams Kparams)
 			}
 			if (group)
 			{
-				LOAD_VAL_256(tmp, L2s, group - 1);
+				Copy_int4_x2(tmp, &L2s[4 * (group - 1)]);
 				SubModP(tmp2, x0, jmp_x);
 				MulModP(dxs, tmp, inverse);
 				MulModP(inverse, inverse, tmp2);
