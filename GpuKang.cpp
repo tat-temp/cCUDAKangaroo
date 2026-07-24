@@ -378,7 +378,9 @@ bool RCGpuKang::Start()
 	err = cudaMemset(Kparams.L1S2, 0, mpCnt * Kparams.BlockSize * 8);
 	if (err != cudaSuccess)
 		return false;
+#ifdef DEBUG_MODE
 	cudaMemset(Kparams.dbg_buf, 0, 1024);
+#endif
 	cudaMemset(Kparams.LoopTable, 0, KangCnt * MD_LEN * sizeof(u64));
 	return true;
 }
@@ -472,12 +474,14 @@ void RCGpuKang::Execute()
 			AddPointsToList(DPs_out, cnt, (u64)KangCnt * STEP_CNT);
 		}
 
+#ifdef DEBUG_MODE
 		//dbg
 		cudaMemcpy(dbg, Kparams.dbg_buf, 1024, cudaMemcpyDeviceToHost);
 
 		u32 lcnt;
 		cudaMemcpy(&lcnt, Kparams.LoopedKangs, 4, cudaMemcpyDeviceToHost);
 		//printf("GPU %d, Looped: %d\r\n", CudaIndex, lcnt);
+#endif
 
 		u64 t2 = GetTickCount64();
 		u64 tm = t2 - t1;

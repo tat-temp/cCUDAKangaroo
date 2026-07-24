@@ -3,3 +3,6 @@
 ################################################################################
 
 /.vs
+
+# Local working notes, not part of the project
+handoff.md

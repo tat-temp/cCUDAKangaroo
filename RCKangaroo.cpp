@@ -50,6 +50,7 @@ EcInt gStart;
 bool gStartSet;
 EcPoint gPubKey;
 u8 gGPUs_Mask[MAX_GPU_CNT];
+bool gGpuMaskSet; //true if -gpu option was specified
 char gTamesFileName[1024];
 double gMax;
 bool gGenMode; //tames generation mode
@@ -75,6 +76,11 @@ void InitGpus()
 //	gcnt = 1; //dbg
 	if (!gcnt)
 		return;
+
+	if (gGpuMaskSet)
+		for (int i = gcnt; i < MAX_GPU_CNT; i++)
+			if (gGPUs_Mask[i])
+				printf("Warning: GPU %d selected via -gpu but only %d GPU(s) detected, ignored\r\n", i, gcnt);
 
 	int drv, rt;
 	cudaRuntimeGetVersion(&rt);
@@ -516,14 +522,55 @@ bool ParseCommandLine(int argc, char* argv[])
 			char* gpus = argv[ci];
 			ci++;
 			memset(gGPUs_Mask, 0, sizeof(gGPUs_Mask));
-			for (int i = 0; i < (int)strlen(gpus); i++)
+			gGpuMaskSet = true;
+			if (strchr(gpus, ','))
 			{
-				if ((gpus[i] < '0') || (gpus[i] > '9'))
+				//comma-separated list, supports indices 0..MAX_GPU_CNT-1, for example "0,3,15"
+				int sel_cnt = 0;
+				for (char* p = gpus; *p; )
+				{
+					if (*p == ',')
+					{
+						p++;
+						continue;
+					}
+					if ((*p < '0') || (*p > '9'))
+					{
+						printf("error: invalid value for -gpu option\r\n");
+						return false;
+					}
+					int idx = 0;
+					while ((*p >= '0') && (*p <= '9'))
+					{
+						idx = idx * 10 + (*p - '0');
+						if (idx >= MAX_GPU_CNT)
+						{
+							printf("error: -gpu index must be in range 0..%d\r\n", MAX_GPU_CNT - 1);
+							return false;
+						}
+						p++;
+					}
+					gGPUs_Mask[idx] = 1;
+					sel_cnt++;
+				}
+				if (!sel_cnt)
 				{
 					printf("error: invalid value for -gpu option\r\n");
 					return false;
 				}
-				gGPUs_Mask[gpus[i] - '0'] = 1;
+			}
+			else
+			{
+				//legacy form: each character is a single-digit GPU index (0..9)
+				for (int i = 0; i < (int)strlen(gpus); i++)
+				{
+					if ((gpus[i] < '0') || (gpus[i] > '9'))
+					{
+						printf("error: invalid value for -gpu option\r\n");
+						return false;
+					}
+					gGPUs_Mask[gpus[i] - '0'] = 1;
+				}
 			}
 		}
 		else
@@ -644,6 +691,7 @@ int main(int argc, char* argv[])
 	gMax = 0.0;
 	gGenMode = false;
 	gIsOpsLimit = false;
+	gGpuMaskSet = false;
 	memset(gGPUs_Mask, 1, sizeof(gGPUs_Mask));
 	if (!ParseCommandLine(argc, argv))
 		return 0;

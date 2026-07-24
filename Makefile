@@ -1,29 +1,61 @@
-CC := g++
-NVCC := /usr/local/cuda-12.0/bin/nvcc
-CUDA_PATH ?= /usr/local/cuda-12.0
+CUDA_PATH ?= /usr/local/cuda
+NVCC      := $(CUDA_PATH)/bin/nvcc
+CC        := g++
 
-CCFLAGS := -O3 -I$(CUDA_PATH)/include
-NVCCFLAGS := -O3 -gencode=arch=compute_89,code=compute_89 -gencode=arch=compute_86,code=compute_86 -gencode=arch=compute_75,code=compute_75 -gencode=arch=compute_61,code=compute_61
-LDFLAGS := -L$(CUDA_PATH)/lib64 -lcudart -pthread
+# Target GPU architectures (SASS): Turing (75), Ampere (86), Ada (89), Blackwell (120).
+# sm_120 requires CUDA Toolkit 12.8 or newer.
+# Compute mode(s) are overridable with SM (or lowercase sm), e.g. `make SM=86`,
+# `make sass SM=89`, or a space-separated list `make SM="86 89"`. Empty = all archs above.
+SM ?= $(sm)
+ifeq ($(strip $(SM)),)
+SM_ARCHS  := 75 86 89 120
+else
+SM_ARCHS  := $(SM)
+endif
+GENCODE   := $(foreach arch,$(SM_ARCHS),-gencode arch=compute_$(arch),code=sm_$(arch))
+
+# Same optimization flags as cCUDA.
+CXXFLAGS  := -std=c++17
+NVCCFLAGS := -O3 -use_fast_math --ptxas-options=-O3 $(GENCODE) $(CXXFLAGS)
+CCFLAGS   := -O3 $(CXXFLAGS) -pthread -I$(CUDA_PATH)/include
+LDFLAGS   := -cudart=static -lpthread -lm
 
 CPU_SRC := RCKangaroo.cpp GpuKang.cpp Ec.cpp utils.cpp
 GPU_SRC := RCGpuCore.cu
+HDRS    := $(wildcard *.h)
 
 CPP_OBJECTS := $(CPU_SRC:.cpp=.o)
-CU_OBJECTS := $(GPU_SRC:.cu=.o)
+CU_OBJECTS  := $(GPU_SRC:.cu=.o)
 
-TARGET := rckangaroo
+TARGET := cCUDAKangaroo
+
+.PHONY: all clean ptxinfo sass
 
 all: $(TARGET)
 
 $(TARGET): $(CPP_OBJECTS) $(CU_OBJECTS)
-	$(CC) $(CCFLAGS) -o $@ $^ $(LDFLAGS)
+	$(NVCC) $(NVCCFLAGS) -o $@ $^ $(LDFLAGS)
 
-%.o: %.cpp
+%.o: %.cpp $(HDRS)
 	$(CC) $(CCFLAGS) -c $< -o $@
 
-%.o: %.cu
+%.o: %.cu $(HDRS)
 	$(NVCC) $(NVCCFLAGS) -c $< -o $@
 
+# ---- Codegen inspection (no effect on the shipped binary), like cCUDA's ptxinfo target ----
+# Verbose ptxas resource report -- registers/thread, spill stores/loads, stack frame -- for
+# every kernel, printed once per target arch. All device kernels live in RCGpuCore.cu, so
+# compiling just that TU with the shipped flags yields the same usage as the release build.
+ptxinfo: $(GPU_SRC) $(HDRS)
+	$(NVCC) $(NVCCFLAGS) -Xptxas -v -c $(GPU_SRC) -o RCGpuCore-ptxinfo.o
+	@rm -f RCGpuCore-ptxinfo.o
+
+# Full SASS (device disassembly) of every kernel, freshly compiled for the selected compute
+# mode(s) so `make sass SM=89` shows exactly that arch. All kernels live in RCGpuCore.cu.
+sass: $(GPU_SRC) $(HDRS)
+	$(NVCC) $(NVCCFLAGS) -c $(GPU_SRC) -o RCGpuCore-sass.o
+	cuobjdump -sass RCGpuCore-sass.o
+	@rm -f RCGpuCore-sass.o
+
 clean:
-	rm -f $(CPP_OBJECTS) $(CU_OBJECTS)
+	rm -f $(CPP_OBJECTS) $(CU_OBJECTS) $(TARGET) RCGpuCore-ptxinfo.o RCGpuCore-sass.o

@@ -20,7 +20,7 @@ Discussion thread: https://bitcointalk.org/index.php?topic=5517607
 
 <b>Command line parameters:</b>
 
-<b>-gpu</b>		which GPUs are used, for example, "035" means that GPUs #0, #3 and #5 are used. If not specified, all available GPUs are used. 
+<b>-gpu</b>		which GPUs are used. Two formats are supported: a string of single digits like "035" selects GPUs #0, #3 and #5 (each character is a separate index, so this form only reaches indices 0-9 and "15" means GPUs #1 and #5, not GPU #15), or a comma-separated list like "0,3,15" selects GPUs #0, #3 and #15 (indices 0..31). To select a single GPU with index >= 10, use the comma form with a trailing comma, for example "15,". An index that does not refer to an installed GPU is ignored with a warning. If not specified, all available GPUs are used. 
 
 <b>-pubkey</b>		public key to solve, both compressed and uncompressed keys are supported. If not specified, software starts in benchmark mode and solves random keys. 
 
