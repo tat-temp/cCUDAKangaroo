@@ -7,6 +7,10 @@
 #include "defs.h"
 #include "RCGpuUtils.h"
 
+#ifdef KERNEL_TIMING
+#include <cstdio>
+#endif
+
 //imp2 table points for KernelA
 __device__ __constant__ u64 jmp2_table[8 * JMP_CNT];
 
@@ -616,9 +620,53 @@ __global__ void KernelGen(const TKparams Kparams)
 
 void CallGpuKernelABC(TKparams Kparams)
 {
+#ifdef KERNEL_TIMING
+	// Per-kernel GPU timing via CUDA events. A/B/C run on the default stream and
+	// serialize, so evA0->evA1 == KernelA, evA1->evB1 == KernelB, evB1->evC1 == KernelC.
+	// thread_local => one independent set of events/accumulators per GPU worker thread.
+	// One sync point (evC1) which Execute()'s DPs_out copy would force anyway.
+	static thread_local cudaEvent_t evA0 = nullptr, evA1, evB1, evC1;
+	static thread_local double sumA = 0, sumB = 0, sumC = 0;
+	static thread_local int nAcc = 0;
+	if (!evA0)
+	{
+		cudaEventCreate(&evA0);
+		cudaEventCreate(&evA1);
+		cudaEventCreate(&evB1);
+		cudaEventCreate(&evC1);
+	}
+	cudaEventRecord(evA0);
+	KernelA <<< Kparams.BlockCnt, Kparams.BlockSize, Kparams.KernelA_LDS_Size >>> (Kparams);
+	cudaEventRecord(evA1);
+	KernelB <<< Kparams.BlockCnt, Kparams.BlockSize, Kparams.KernelB_LDS_Size >>> (Kparams);
+	cudaEventRecord(evB1);
+	KernelC <<< Kparams.BlockCnt, Kparams.BlockSize, Kparams.KernelC_LDS_Size >>> (Kparams);
+	cudaEventRecord(evC1);
+	cudaEventSynchronize(evC1);
+	float ta = 0, tb = 0, tc = 0;
+	cudaEventElapsedTime(&ta, evA0, evA1);
+	cudaEventElapsedTime(&tb, evA1, evB1);
+	cudaEventElapsedTime(&tc, evB1, evC1);
+	sumA += ta; sumB += tb; sumC += tc; nAcc++;
+	if (nAcc >= KERNEL_TIMING)
+	{
+		int dev = -1;
+		cudaGetDevice(&dev);
+		double tot = sumA + sumB + sumC;
+		if (tot <= 0) tot = 1;
+		printf("[KTIMING] GPU %d avg/%d it: A=%.3f ms (%.1f%%)  B=%.3f ms (%.1f%%)  C=%.3f ms (%.1f%%)  ABC=%.3f ms\r\n",
+			dev, nAcc,
+			sumA / nAcc, 100.0 * sumA / tot,
+			sumB / nAcc, 100.0 * sumB / tot,
+			sumC / nAcc, 100.0 * sumC / tot,
+			tot / nAcc);
+		sumA = sumB = sumC = 0; nAcc = 0;
+	}
+#else
 	KernelA <<< Kparams.BlockCnt, Kparams.BlockSize, Kparams.KernelA_LDS_Size >>> (Kparams);
 	KernelB <<< Kparams.BlockCnt, Kparams.BlockSize, Kparams.KernelB_LDS_Size >>> (Kparams);
 	KernelC <<< Kparams.BlockCnt, Kparams.BlockSize, Kparams.KernelC_LDS_Size >>> (Kparams);
+#endif
 }
 
 void CallGpuKernelGen(TKparams Kparams)

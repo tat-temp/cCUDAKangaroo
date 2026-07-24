@@ -20,6 +20,14 @@ NVCCFLAGS := -O3 -use_fast_math --ptxas-options=-O3 $(GENCODE) $(CXXFLAGS)
 CCFLAGS   := -O3 $(CXXFLAGS) -pthread -I$(CUDA_PATH)/include
 LDFLAGS   := -cudart=static -lpthread -lm
 
+# Per-kernel GPU timing (CUDA events). `make TIMING=100` prints a KernelA/B/C
+# millisecond + %-share breakdown every N main-loop iterations. Unset => no
+# instrumentation compiled in (release build is unchanged).
+TIMING ?=
+ifneq ($(strip $(TIMING)),)
+NVCCFLAGS += -DKERNEL_TIMING=$(TIMING)
+endif
+
 CPU_SRC := RCKangaroo.cpp GpuKang.cpp Ec.cpp utils.cpp
 GPU_SRC := RCGpuCore.cu
 HDRS    := $(wildcard *.h)
