@@ -97,7 +97,7 @@ __global__ void KernelA(const TKparams Kparams)
 		jmp_table = ((L1S2 >> 0) & 1) ? jmp2_table : jmp1_table;
 		Copy_int4_x2(jmp_x, jmp_table + 8 * jmp_ind);
 		SubModP(inverse, x, jmp_x);
-		Copy_int4_x2(&L2s[0], inverse);
+		Copy_u64_x4(&L2s[0], inverse);
 		//the rest
 		
 		for (int group = 1; group < PNT_GROUP_CNT; group++)
@@ -108,7 +108,7 @@ __global__ void KernelA(const TKparams Kparams)
 			Copy_int4_x2(jmp_x, jmp_table + 8 * jmp_ind);
 			SubModP(tmp, x, jmp_x);
 			MulModP(inverse, inverse, tmp);
-			Copy_int4_x2(&L2s[4 * group], inverse);
+			Copy_u64_x4(&L2s[4 * group], inverse);
 		}
 
 		InvModP((u32*)inverse);
@@ -133,7 +133,7 @@ __global__ void KernelA(const TKparams Kparams)
 			}
 			if (group)
 			{
-				Copy_int4_x2(tmp, &L2s[4 * (group - 1)]);
+				Copy_u64_x4(tmp, &L2s[4 * (group - 1)]);
 				SubModP(tmp2, x0, jmp_x);
 				MulModP(dxs, tmp, inverse);
 				MulModP(inverse, inverse, tmp2);
