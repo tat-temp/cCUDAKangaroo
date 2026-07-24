@@ -4,7 +4,14 @@ CC        := g++
 
 # Target GPU architectures (SASS): Turing (75), Ampere (86), Ada (89), Blackwell (120).
 # sm_120 requires CUDA Toolkit 12.8 or newer.
+# Compute mode(s) are overridable with SM (or lowercase sm), e.g. `make SM=86`,
+# `make sass SM=89`, or a space-separated list `make SM="86 89"`. Empty = all archs above.
+SM ?= $(sm)
+ifeq ($(strip $(SM)),)
 SM_ARCHS  := 75 86 89 120
+else
+SM_ARCHS  := $(SM)
+endif
 GENCODE   := $(foreach arch,$(SM_ARCHS),-gencode arch=compute_$(arch),code=sm_$(arch))
 
 # Same optimization flags as cCUDA.
@@ -22,7 +29,7 @@ CU_OBJECTS  := $(GPU_SRC:.cu=.o)
 
 TARGET := cCUDAKangaroo
 
-.PHONY: all clean ptxinfo
+.PHONY: all clean ptxinfo sass
 
 all: $(TARGET)
 
@@ -43,5 +50,12 @@ ptxinfo: $(GPU_SRC) $(HDRS)
 	$(NVCC) $(NVCCFLAGS) -Xptxas -v -c $(GPU_SRC) -o RCGpuCore-ptxinfo.o
 	@rm -f RCGpuCore-ptxinfo.o
 
+# Full SASS (device disassembly) of every kernel, freshly compiled for the selected compute
+# mode(s) so `make sass SM=89` shows exactly that arch. All kernels live in RCGpuCore.cu.
+sass: $(GPU_SRC) $(HDRS)
+	$(NVCC) $(NVCCFLAGS) -c $(GPU_SRC) -o RCGpuCore-sass.o
+	cuobjdump -sass RCGpuCore-sass.o
+	@rm -f RCGpuCore-sass.o
+
 clean:
-	rm -f $(CPP_OBJECTS) $(CU_OBJECTS) $(TARGET) RCGpuCore-ptxinfo.o
+	rm -f $(CPP_OBJECTS) $(CU_OBJECTS) $(TARGET) RCGpuCore-ptxinfo.o RCGpuCore-sass.o
