@@ -472,12 +472,14 @@ void RCGpuKang::Execute()
 			AddPointsToList(DPs_out, cnt, (u64)KangCnt * STEP_CNT);
 		}
 
+#ifdef DEBUG_MODE
 		//dbg
 		cudaMemcpy(dbg, Kparams.dbg_buf, 1024, cudaMemcpyDeviceToHost);
 
 		u32 lcnt;
 		cudaMemcpy(&lcnt, Kparams.LoopedKangs, 4, cudaMemcpyDeviceToHost);
 		//printf("GPU %d, Looped: %d\r\n", CudaIndex, lcnt);
+#endif
 
 		u64 t2 = GetTickCount64();
 		u64 tm = t2 - t1;

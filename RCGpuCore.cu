@@ -542,7 +542,9 @@ __device__ __forceinline__ bool ProcessJumpDistance(u32 step_ind, u32 d_cur, u64
 	u32 LoopSize = (iter + MD_LEN - found_ind) % MD_LEN;
 	if (!LoopSize)
 		LoopSize = MD_LEN;
+#ifdef DEBUG_MODE
 	atomicAdd(Kparams.dbg_buf + LoopSize, 1); //dbg
+#endif
 
 	//calc index in LastPnts
 	u32 ind_LastPnts = MD_LEN - 1 - ((STEP_CNT - 1 - step_ind) % LoopSize);
