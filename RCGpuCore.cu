@@ -24,8 +24,6 @@ extern __shared__ u64 LDS[];
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#ifndef OLD_GPU
-
 //this kernel performs main jumps
 extern "C" __launch_bounds__(BLOCK_SIZE, 2)
 __global__ void KernelA(const TKparams Kparams)
@@ -44,14 +42,17 @@ __global__ void KernelA(const TKparams Kparams)
 	u16* lds_jlist = (u16*)&LDS[8 * JMP_CNT]; //4KB, must be aligned 16bytes
 
 	int i = THREAD_X;
-	while (i < JMP_CNT)
-    {	
-		*(int4*)&jmp1_table[8 * i + 0] = *(int4*)&Kparams.Jumps1[12 * i + 0];
-		*(int4*)&jmp1_table[8 * i + 2] = *(int4*)&Kparams.Jumps1[12 * i + 2];
-		*(int4*)&jmp1_table[8 * i + 4] = *(int4*)&Kparams.Jumps1[12 * i + 4];
-		*(int4*)&jmp1_table[8 * i + 6] = *(int4*)&Kparams.Jumps1[12 * i + 6];
-		i += BLOCK_SIZE;
-    }
+	#pragma unroll
+	{
+	    while (i < JMP_CNT)
+        {	
+	    	*(int4*)&jmp1_table[8 * i + 0] = *(int4*)&Kparams.Jumps1[12 * i + 0];
+	    	*(int4*)&jmp1_table[8 * i + 2] = *(int4*)&Kparams.Jumps1[12 * i + 2];
+	    	*(int4*)&jmp1_table[8 * i + 4] = *(int4*)&Kparams.Jumps1[12 * i + 4];
+	    	*(int4*)&jmp1_table[8 * i + 6] = *(int4*)&Kparams.Jumps1[12 * i + 6];
+	    	i += BLOCK_SIZE;
+        }
+	}
 
     __syncthreads(); 
 
@@ -61,18 +62,21 @@ __global__ void KernelA(const TKparams Kparams)
 
 	//copy kangs from global to L2
 	u32 kang_ind = PNT_GROUP_CNT * (THREAD_X + BLOCK_X * BLOCK_SIZE);
-	for (u32 group = 0; group < PNT_GROUP_CNT; group++)
-	{	
-		tmp[0] = Kparams.Kangs[(kang_ind + group) * 12 + 0];
-		tmp[1] = Kparams.Kangs[(kang_ind + group) * 12 + 1];
-		tmp[2] = Kparams.Kangs[(kang_ind + group) * 12 + 2];
-		tmp[3] = Kparams.Kangs[(kang_ind + group) * 12 + 3];
-		SAVE_VAL_256(L2x, tmp, group);
-		tmp[0] = Kparams.Kangs[(kang_ind + group) * 12 + 4];
-		tmp[1] = Kparams.Kangs[(kang_ind + group) * 12 + 5];
-		tmp[2] = Kparams.Kangs[(kang_ind + group) * 12 + 6];
-		tmp[3] = Kparams.Kangs[(kang_ind + group) * 12 + 7];
-		SAVE_VAL_256(L2y, tmp, group);
+	#pragma unroll
+	{
+		for (u32 group = 0; group < PNT_GROUP_CNT; group++)
+		{	
+			tmp[0] = Kparams.Kangs[(kang_ind + group) * 12 + 0];
+			tmp[1] = Kparams.Kangs[(kang_ind + group) * 12 + 1];
+			tmp[2] = Kparams.Kangs[(kang_ind + group) * 12 + 2];
+			tmp[3] = Kparams.Kangs[(kang_ind + group) * 12 + 3];
+			SAVE_VAL_256(L2x, tmp, group);
+			tmp[0] = Kparams.Kangs[(kang_ind + group) * 12 + 4];
+			tmp[1] = Kparams.Kangs[(kang_ind + group) * 12 + 5];
+			tmp[2] = Kparams.Kangs[(kang_ind + group) * 12 + 6];
+			tmp[3] = Kparams.Kangs[(kang_ind + group) * 12 + 7];
+			SAVE_VAL_256(L2y, tmp, group);
+		}
 	}
 
 	u32 L1S2 = Kparams.L1S2[BLOCK_X * BLOCK_SIZE + THREAD_X];
@@ -92,393 +96,126 @@ __global__ void KernelA(const TKparams Kparams)
 		SubModP(inverse, x, jmp_x);
 		SAVE_VAL_256(L2s, inverse, 0);
 		//the rest
-		for (int group = 1; group < PNT_GROUP_CNT; group++)
+		
+		#pragma unroll
 		{
-			LOAD_VAL_256(x, L2x, group);
-			jmp_ind = x[0] % JMP_CNT;
-			jmp_table = ((L1S2 >> group) & 1) ? jmp2_table : jmp1_table;
-			Copy_int4_x2(jmp_x, jmp_table + 8 * jmp_ind);
-			SubModP(tmp, x, jmp_x);
-			MulModP(inverse, inverse, tmp);
-			SAVE_VAL_256(L2s, inverse, group);
+			for (int group = 1; group < PNT_GROUP_CNT; group++)
+			{
+				LOAD_VAL_256(x, L2x, group);
+				jmp_ind = x[0] % JMP_CNT;
+				jmp_table = ((L1S2 >> group) & 1) ? jmp2_table : jmp1_table;
+				Copy_int4_x2(jmp_x, jmp_table + 8 * jmp_ind);
+				SubModP(tmp, x, jmp_x);
+				MulModP(inverse, inverse, tmp);
+				SAVE_VAL_256(L2s, inverse, group);
+			}
 		}
 
 		InvModP((u32*)inverse);
 
-        for (int group = PNT_GROUP_CNT - 1; group >= 0; group--)
-        {
-            __align__(16) u64 x0[4];
-            __align__(16) u64 y0[4];
-            __align__(16) u64 dxs[4];
-
-			LOAD_VAL_256(x0, L2x, group);
-            LOAD_VAL_256(y0, L2y, group);
-			jmp_ind = x0[0] % JMP_CNT;
-			jmp_table = ((L1S2 >> group) & 1) ? jmp2_table : jmp1_table;
-			Copy_int4_x2(jmp_x, jmp_table + 8 * jmp_ind);
-			Copy_int4_x2(jmp_y, jmp_table + 8 * jmp_ind + 4);
-			u32 inv_flag = (u32)y0[0] & 1;
-			if (inv_flag)
+		#pragma unroll
+		{
+			for (int group = PNT_GROUP_CNT - 1; group >= 0; group--)
 			{
-				jmp_ind |= INV_FLAG;
-				NegModP(jmp_y);
-			}
-            if (group)
-            {
-				LOAD_VAL_256(tmp, L2s, group - 1);
-				SubModP(tmp2, x0, jmp_x);
-				MulModP(dxs, tmp, inverse);
-				MulModP(inverse, inverse, tmp2);
-            }
-			else
-				Copy_u64_x4(dxs, inverse);
+				__align__(16) u64 x0[4];
+				__align__(16) u64 y0[4];
+				__align__(16) u64 dxs[4];
 
-			SubModP(tmp2, y0, jmp_y);
-			MulModP(tmp, tmp2, dxs);
-			SqrModP(tmp2, tmp);
+				LOAD_VAL_256(x0, L2x, group);
+				LOAD_VAL_256(y0, L2y, group);
+				jmp_ind = x0[0] % JMP_CNT;
+				jmp_table = ((L1S2 >> group) & 1) ? jmp2_table : jmp1_table;
+				Copy_int4_x2(jmp_x, jmp_table + 8 * jmp_ind);
+				Copy_int4_x2(jmp_y, jmp_table + 8 * jmp_ind + 4);
+				u32 inv_flag = (u32)y0[0] & 1;
+				if (inv_flag)
+				{
+					jmp_ind |= INV_FLAG;
+					NegModP(jmp_y);
+				}
+				if (group)
+				{
+					LOAD_VAL_256(tmp, L2s, group - 1);
+					SubModP(tmp2, x0, jmp_x);
+					MulModP(dxs, tmp, inverse);
+					MulModP(inverse, inverse, tmp2);
+				}
+				else
+					Copy_u64_x4(dxs, inverse);
 
-			SubModP(x, tmp2, jmp_x);
-			SubModP(x, x, x0); 
-			SAVE_VAL_256(L2x, x, group); 
+				SubModP(tmp2, y0, jmp_y);
+				MulModP(tmp, tmp2, dxs);
+				SqrModP(tmp2, tmp);
 
-			SubModP(y, x0, x);
-			MulModP(y, y, tmp);
-			SubModP(y, y, y0);
-			SAVE_VAL_256(L2y, y, group);
+				SubModP(x, tmp2, jmp_x);
+				SubModP(x, x, x0); 
+				SAVE_VAL_256(L2x, x, group); 
 
-			if (((L1S2 >> group) & 1) == 0) //normal mode, check L1S2 loop
-			{
-				u32 jmp_next = x[0] % JMP_CNT;
-				jmp_next |= ((u32)y[0] & 1) ? 0 : INV_FLAG; //inverted
-				L1S2 |= (jmp_ind == jmp_next) ? (1u << group) : 0; //loop L1S2 detected
-			}
-			else
-			{
-				L1S2 &= ~(1u << group);
-				jmp_ind |= JMP2_FLAG;
-			}
+				SubModP(y, x0, x);
+				MulModP(y, y, tmp);
+				SubModP(y, y, y0);
+				SAVE_VAL_256(L2y, y, group);
+
+				if (((L1S2 >> group) & 1) == 0) //normal mode, check L1S2 loop
+				{
+					u32 jmp_next = x[0] % JMP_CNT;
+					jmp_next |= ((u32)y[0] & 1) ? 0 : INV_FLAG; //inverted
+					L1S2 |= (jmp_ind == jmp_next) ? (1u << group) : 0; //loop L1S2 detected
+				}
+				else
+				{
+					L1S2 &= ~(1u << group);
+					jmp_ind |= JMP2_FLAG;
+				}
 			
-			if ((x[3] & dp_mask64) == 0)
-			{
-				u32 kang_ind = (THREAD_X + BLOCK_X * BLOCK_SIZE) * PNT_GROUP_CNT + group;
-				u32 ind = atomicAdd(Kparams.DPTable + kang_ind, 1);
-				ind = min(ind, DPTABLE_MAX_CNT - 1);
-				int4* dst = (int4*)(Kparams.DPTable + Kparams.KangCnt + (kang_ind * DPTABLE_MAX_CNT + ind) * 4);
-				dst[0] = ((int4*)x)[0];
-				jmp_ind |= DP_FLAG;
-			}
+				if ((x[3] & dp_mask64) == 0)
+				{
+					u32 kang_ind = (THREAD_X + BLOCK_X * BLOCK_SIZE) * PNT_GROUP_CNT + group;
+					u32 ind = atomicAdd(Kparams.DPTable + kang_ind, 1);
+					ind = min(ind, DPTABLE_MAX_CNT - 1);
+					int4* dst = (int4*)(Kparams.DPTable + Kparams.KangCnt + (kang_ind * DPTABLE_MAX_CNT + ind) * 4);
+					dst[0] = ((int4*)x)[0];
+					jmp_ind |= DP_FLAG;
+				}
 
-			lds_jlist[8 * THREAD_X + (group % 8)] = jmp_ind;
-			if ((group % 8) == 0)
-				st_cs_v4_b32(&jlist[(group / 8) * 32 + (THREAD_X % 32)], *(int4*)&lds_jlist[8 * THREAD_X]); //skip L2 cache
+				lds_jlist[8 * THREAD_X + (group % 8)] = jmp_ind;
+				if ((group % 8) == 0)
+					st_cs_v4_b32(&jlist[(group / 8) * 32 + (THREAD_X % 32)], *(int4*)&lds_jlist[8 * THREAD_X]); //skip L2 cache
 
-			if (step_ind + MD_LEN >= STEP_CNT) //store last kangs to be able to find loop exit point
-			{
-				int n = step_ind + MD_LEN - STEP_CNT;
-				u64* x_last = x_last0 + n * 2 * (4 * PNT_GROUP_CNT * BLOCK_CNT * BLOCK_SIZE);
-				u64* y_last = y_last0 + n * 2 * (4 * PNT_GROUP_CNT * BLOCK_CNT * BLOCK_SIZE);
-				SAVE_VAL_256(x_last, x, group);
-				SAVE_VAL_256(y_last, y, group);
+				if (step_ind + MD_LEN >= STEP_CNT) //store last kangs to be able to find loop exit point
+				{
+					int n = step_ind + MD_LEN - STEP_CNT;
+					u64* x_last = x_last0 + n * 2 * (4 * PNT_GROUP_CNT * BLOCK_CNT * BLOCK_SIZE);
+					u64* y_last = y_last0 + n * 2 * (4 * PNT_GROUP_CNT * BLOCK_CNT * BLOCK_SIZE);
+					SAVE_VAL_256(x_last, x, group);
+					SAVE_VAL_256(y_last, y, group);
+				}
 			}
-        }
+		}
 		jlist += PNT_GROUP_CNT * BLOCK_SIZE / 8;
     } 
 
 	Kparams.L1S2[BLOCK_X * BLOCK_SIZE + THREAD_X] = L1S2;
 	//copy kangs from L2 to global
 	kang_ind = PNT_GROUP_CNT * (THREAD_X + BLOCK_X * BLOCK_SIZE);
-	for (u32 group = 0; group < PNT_GROUP_CNT; group++)
+	
+	#pragma unroll
 	{
-		LOAD_VAL_256(tmp, L2x, group);
-		Kparams.Kangs[(kang_ind + group) * 12 + 0] = tmp[0];
-		Kparams.Kangs[(kang_ind + group) * 12 + 1] = tmp[1];
-		Kparams.Kangs[(kang_ind + group) * 12 + 2] = tmp[2];
-		Kparams.Kangs[(kang_ind + group) * 12 + 3] = tmp[3];
-		LOAD_VAL_256(tmp, L2y, group);
-		Kparams.Kangs[(kang_ind + group) * 12 + 4] = tmp[0];
-		Kparams.Kangs[(kang_ind + group) * 12 + 5] = tmp[1];
-		Kparams.Kangs[(kang_ind + group) * 12 + 6] = tmp[2];
-		Kparams.Kangs[(kang_ind + group) * 12 + 7] = tmp[3];
-	}
-} 
-
-#else
-
-#define LOAD_VAL_256_m(dst,p,i) { *((int4*)&(dst)[0]) = *((int4*)&(p)[4 * (i)]); *((int4*)&(dst)[2]) = *((int4*)&(p)[4 * (i) + 2]); }
-#define SAVE_VAL_256_m(p,src,i) { *((int4*)&(p)[4 * (i)]) = *((int4*)&(src)[0]); *((int4*)&(p)[4 * (i) + 2]) = *((int4*)&(src)[2]); }
-
-
-//this kernel performs main jumps for old cards
-//not good but works
-extern "C" __launch_bounds__(BLOCK_SIZE, 1)
-__global__ void KernelA(const TKparams Kparams)
-{
-	__align__(16) u64 Lx[4 * PNT_GROUP_CNT];
-	__align__(16) u64 Ly[4 * PNT_GROUP_CNT];
-	__align__(16) u64 Ls[4 * PNT_GROUP_CNT / 2]; //we store only half so need only half mem
-
-	//list of distances of performed jumps for KernelB
-	int4* jlist = (int4*)(Kparams.JumpsList + (u64)BLOCK_X * STEP_CNT * PNT_GROUP_CNT * BLOCK_SIZE / 4);
-	jlist += (THREAD_X / 32) * 32 * PNT_GROUP_CNT / 8;
-	//list of last visited points for KernelC
-	u64* x_last0 = Kparams.LastPnts + 2 * THREAD_X + 4 * BLOCK_SIZE * BLOCK_X;
-	u64* y_last0 = x_last0 + 4 * PNT_GROUP_CNT * BLOCK_CNT * BLOCK_SIZE;
-
-	u64* jmp1_table = LDS; //32KB
-	u16* lds_jlist = (u16*)&LDS[8 * JMP_CNT]; //8KB, must be aligned 16bytes
-
-	int i = THREAD_X;
-	while (i < JMP_CNT)
-	{
-		*(int4*)&jmp1_table[8 * i + 0] = *(int4*)&Kparams.Jumps1[12 * i + 0];
-		*(int4*)&jmp1_table[8 * i + 2] = *(int4*)&Kparams.Jumps1[12 * i + 2];
-		*(int4*)&jmp1_table[8 * i + 4] = *(int4*)&Kparams.Jumps1[12 * i + 4];
-		*(int4*)&jmp1_table[8 * i + 6] = *(int4*)&Kparams.Jumps1[12 * i + 6];
-		i += BLOCK_SIZE;
-	}
-
-	__syncthreads();
-
-	__align__(16) u64 inverse[5];
-	__align__(16) u64 x[4], y[4], tmp[4], tmp2[4];
-	u64 dp_mask64 = ~((1ull << (64 - Kparams.DP)) - 1);
-	u16 jmp_ind;
-
-	//copy kangs from global to local
-	u32 kang_ind = PNT_GROUP_CNT * (THREAD_X + BLOCK_X * BLOCK_SIZE);
-	for (u32 group = 0; group < PNT_GROUP_CNT; group++)
-	{
-		tmp[0] = Kparams.Kangs[(kang_ind + group) * 12 + 0];
-		tmp[1] = Kparams.Kangs[(kang_ind + group) * 12 + 1];
-		tmp[2] = Kparams.Kangs[(kang_ind + group) * 12 + 2];
-		tmp[3] = Kparams.Kangs[(kang_ind + group) * 12 + 3];
-		SAVE_VAL_256_m(Lx, tmp, group);
-		tmp[0] = Kparams.Kangs[(kang_ind + group) * 12 + 4];
-		tmp[1] = Kparams.Kangs[(kang_ind + group) * 12 + 5];
-		tmp[2] = Kparams.Kangs[(kang_ind + group) * 12 + 6];
-		tmp[3] = Kparams.Kangs[(kang_ind + group) * 12 + 7];
-		SAVE_VAL_256_m(Ly, tmp, group);
-	}
-
-	u64 L1S2 = ((u64*)Kparams.L1S2)[BLOCK_X * BLOCK_SIZE + THREAD_X];
-	u64* jmp_table;
-	__align__(16) u64 jmp_x[4];
-	__align__(16) u64 jmp_y[4];
-
-	//preparations (first calc for inv)
-	for (int group = 0; group < PNT_GROUP_CNT; group++)
-	{
-		LOAD_VAL_256_m(x, Lx, group);
-		jmp_ind = x[0] % JMP_CNT;
-		jmp_table = ((L1S2 >> group) & 1) ? jmp2_table : jmp1_table;
-		Copy_int4_x2(jmp_x, jmp_table + 8 * jmp_ind);
-		SubModP(tmp, x, jmp_x);
-		if (group == 0)
+		for (u32 group = 0; group < PNT_GROUP_CNT; group++)
 		{
-			Copy_u64_x4(inverse, tmp);
-			SAVE_VAL_256_m(Ls, tmp, 0);
+			LOAD_VAL_256(tmp, L2x, group);
+			Kparams.Kangs[(kang_ind + group) * 12 + 0] = tmp[0];
+			Kparams.Kangs[(kang_ind + group) * 12 + 1] = tmp[1];
+			Kparams.Kangs[(kang_ind + group) * 12 + 2] = tmp[2];
+			Kparams.Kangs[(kang_ind + group) * 12 + 3] = tmp[3];
+			LOAD_VAL_256(tmp, L2y, group);
+			Kparams.Kangs[(kang_ind + group) * 12 + 4] = tmp[0];
+			Kparams.Kangs[(kang_ind + group) * 12 + 5] = tmp[1];
+			Kparams.Kangs[(kang_ind + group) * 12 + 6] = tmp[2];
+			Kparams.Kangs[(kang_ind + group) * 12 + 7] = tmp[3];
 		}
-		else
-		{
-			MulModP(inverse, inverse, tmp);
-			if ((group & 1) == 0)
-				SAVE_VAL_256_m(Ls, inverse, group / 2);
-		}
-	}
-
-	//main loop
-	int g_beg = PNT_GROUP_CNT - 1; //start val
-	int g_end = -1; //first val after range
-	int g_inc = -1;
-	int s_mask = 1;
-	int jlast_add = 0;
-	__align__(16) u64 t_cache[4], x0_cache[4], jmpx_cached[4];
-	t_cache[0] = t_cache[1] = t_cache[2] = t_cache[3] = 0;
-	x0_cache[0] = x0_cache[1] = x0_cache[2] = x0_cache[3] = 0;
-
-	for (int step_ind = 0; step_ind < STEP_CNT; step_ind++)
-	{
-		__align__(16) u64 next_inv[4];
-
-		InvModP((u32*)inverse);
-
-		int group = g_beg;
-		bool cached = false;
-		while (group != g_end)
-		{
-			__align__(16) u64 dx[4], x0[4], y0[4], dx0[4];
-			if (cached)
-			{
-				Copy_u64_x4(x0, x0_cache);
-			}
-			else
-			{
-				LOAD_VAL_256_m(x0, Lx, group);
-			}
-			LOAD_VAL_256_m(y0, Ly, group);
-
-			jmp_ind = x0[0] % JMP_CNT;
-			jmp_table = ((L1S2 >> group) & 1) ? jmp2_table : jmp1_table;
-			if (cached)
-			{
-				Copy_u64_x4(jmp_x, jmpx_cached); 
-			}
-			else
-			{
-				Copy_int4_x2(jmp_x, jmp_table + 8 * jmp_ind);
-			}
-			Copy_int4_x2(jmp_y, jmp_table + 8 * jmp_ind + 4);
-			u32 inv_flag = (u32)y0[0] & 1;
-			if (inv_flag)
-			{
-				jmp_ind |= INV_FLAG;
-				NegModP(jmp_y);
-			}
-
-			if (group == g_end - g_inc)
-			{
-				Copy_u64_x4(dx0, inverse);
-			}
-			else
-			{
-				if ((group & 1) == s_mask) //simple case
-				{
-					if (cached)
-					{
-						Copy_u64_x4(tmp, t_cache);
-						cached = false;
-					}
-					else
-					{
-						LOAD_VAL_256_m(tmp, Ls, (group + g_inc) / 2);
-					}
-				}
-				else //no s(-1), need to calc it
-				{
-					LOAD_VAL_256_m(t_cache, Ls, (group + g_inc + g_inc) / 2);
-					cached = true;				
-					LOAD_VAL_256_m(x0_cache, Lx, group + g_inc);
-					u32 jmp_tmp = x0_cache[0] % JMP_CNT;
-					__align__(16) u64 dx2[4];
-					u64* jmp_table_tmp = ((L1S2 >> (group + g_inc)) & 1) ? jmp2_table : jmp1_table;
-					Copy_int4_x2(jmpx_cached, jmp_table_tmp + 8 * jmp_tmp);
-					SubModP(dx2, x0_cache, jmpx_cached);
-					MulModP(tmp, t_cache, dx2); //t = s(-1)
-				}
-
-				SubModP(dx, x0, jmp_x);
-				MulModP(dx0, tmp, inverse);
-				MulModP(inverse, inverse, dx);
-			}
-
-			SubModP(tmp2, y0, jmp_y);
-			MulModP(tmp, tmp2, dx0);
-			SqrModP(tmp2, tmp);
-
-			SubModP(x, tmp2, jmp_x);
-			SubModP(x, x, x0);
-			SAVE_VAL_256_m(Lx, x, group);
-
-			SubModP(y, x0, x);
-			MulModP(y, y, tmp);
-			SubModP(y, y, y0);
-			SAVE_VAL_256_m(Ly, y, group);
-
-			if (((L1S2 >> group) & 1) == 0) //normal mode, check L1S2 loop
-			{
-				u32 jmp_next = x[0] % JMP_CNT;
-				jmp_next |= ((u32)y[0] & 1) ? 0 : INV_FLAG; //inverted
-				L1S2 |= (jmp_ind == jmp_next) ? (1ull << group) : 0; //loop L1S2 detected
-			}
-			else
-			{
-				L1S2 &= ~(1ull << group);
-				jmp_ind |= JMP2_FLAG;
-			}
-
-			if ((x[3] & dp_mask64) == 0)
-			{
-				u32 kang_ind = (THREAD_X + BLOCK_X * BLOCK_SIZE) * PNT_GROUP_CNT + group;
-				u32 ind = atomicAdd(Kparams.DPTable + kang_ind, 1);
-				ind = min(ind, DPTABLE_MAX_CNT - 1);
-				int4* dst = (int4*)(Kparams.DPTable + Kparams.KangCnt + (kang_ind * DPTABLE_MAX_CNT + ind) * 4);
-				dst[0] = ((int4*)x)[0];
-				jmp_ind |= DP_FLAG;
-			}
-
-			lds_jlist[8 * THREAD_X + (group % 8)] = jmp_ind;
-			if (((group + jlast_add) % 8) == 0)
-				st_cs_v4_b32(&jlist[(group / 8) * 32 + (THREAD_X % 32)], *(int4*)&lds_jlist[8 * THREAD_X]); //skip L2 cache
-
-			if (step_ind + MD_LEN >= STEP_CNT) //store last kangs to be able to find loop exit point
-			{
-				int n = step_ind + MD_LEN - STEP_CNT;
-				u64* x_last = x_last0 + n * 2 * (4 * PNT_GROUP_CNT * BLOCK_CNT * BLOCK_SIZE);
-				u64* y_last = y_last0 + n * 2 * (4 * PNT_GROUP_CNT * BLOCK_CNT * BLOCK_SIZE);
-				SAVE_VAL_256(x_last, x, group);
-				SAVE_VAL_256(y_last, y, group);
-			}
-		
-			//preps to calc next inv
-			jmp_ind = x[0] % JMP_CNT;
-			jmp_table = ((L1S2 >> group) & 1) ? jmp2_table : jmp1_table;
-			Copy_int4_x2(jmp_x, jmp_table + 8 * jmp_ind);
-			SubModP(dx, x, jmp_x);
-			if (group == g_beg)
-			{
-				Copy_u64_x4(next_inv, dx);
-				SAVE_VAL_256_m(Ls, dx, g_beg / 2);
-			}
-			else
-			{
-				MulModP(next_inv, next_inv, dx);
-				if ((group & 1) == s_mask)
-				{
-					SAVE_VAL_256_m(Ls, next_inv, group / 2);
-				}
-			}
-
-			group += g_inc;
-		} //group
-		jlist += PNT_GROUP_CNT * BLOCK_SIZE / 8;
-		Copy_u64_x4(inverse, next_inv);
-		if (g_inc < 0) //invert direction
-		{
-			g_beg = 0;
-			g_end = PNT_GROUP_CNT;
-			g_inc = 1;
-			s_mask = 0;
-			jlast_add = 1;
-		}
-		else
-		{
-			g_beg = PNT_GROUP_CNT - 1;
-			g_end = -1;
-			g_inc = -1;
-			s_mask = 1;
-			jlast_add = 0;
-		}
-	}
-
-	((u64*)Kparams.L1S2)[BLOCK_X * BLOCK_SIZE + THREAD_X] = L1S2;
-	//copy kangs from local to global
-	kang_ind = PNT_GROUP_CNT * (THREAD_X + BLOCK_X * BLOCK_SIZE);
-	for (u32 group = 0; group < PNT_GROUP_CNT; group++)
-	{
-		LOAD_VAL_256_m(tmp, Lx, group);
-		Kparams.Kangs[(kang_ind + group) * 12 + 0] = tmp[0];
-		Kparams.Kangs[(kang_ind + group) * 12 + 1] = tmp[1];
-		Kparams.Kangs[(kang_ind + group) * 12 + 2] = tmp[2];
-		Kparams.Kangs[(kang_ind + group) * 12 + 3] = tmp[3];
-		LOAD_VAL_256_m(tmp, Ly, group);
-		Kparams.Kangs[(kang_ind + group) * 12 + 4] = tmp[0];
-		Kparams.Kangs[(kang_ind + group) * 12 + 5] = tmp[1];
-		Kparams.Kangs[(kang_ind + group) * 12 + 6] = tmp[2];
-		Kparams.Kangs[(kang_ind + group) * 12 + 7] = tmp[3];
 	}
 }
-
-#endif
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -599,6 +336,8 @@ __global__ void KernelB(const TKparams Kparams)
 	u64 RegsA[MD_LEN], RegsB[MD_LEN];
 
 	//we process two kangs at once
+	#pragma unroll
+	{
 	for (u32 gr_ind2 = 0; gr_ind2 < PNT_GROUP_CNT/2; gr_ind2++)
 	{	
 		#pragma unroll
@@ -663,6 +402,7 @@ __global__ void KernelB(const TKparams Kparams)
 			ind = (i + MD_LEN - cur_indB) % MD_LEN;
 			Kparams.LoopTable[MD_LEN * BLOCK_SIZE * PNT_GROUP_CNT * BLOCK_X + 2 * MD_LEN * BLOCK_SIZE * gr_ind2 + (ind + MD_LEN) * BLOCK_SIZE + THREAD_X] = RegsB[i];
 		}
+	}
 	}
 }
 
