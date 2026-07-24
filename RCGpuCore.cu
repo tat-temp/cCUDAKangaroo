@@ -573,7 +573,7 @@ __device__ __forceinline__ bool ProcessJumpDistance(u32 step_ind, u32 d_cur, u64
 // Since we lose kangs gradually, for a year we lose 0.19/2 = 0.1% of speed, so you should catch L1S12 only if you are going to solve same point for decades.
 // Or you can check all kangs for L1S12 on CPU once a day and restart looped kangs.
 // Level2 loops are very rare and they have even size too so they will be handled by the same code. We don't know what loop level we catch so we use JmpTable3 for escaping.
-extern "C" __launch_bounds__(BLOCK_SIZE, 1)
+extern "C" __launch_bounds__(BLOCK_SIZE, 2)
 __global__ void KernelB(const TKparams Kparams)
 {
 	u64* jmp1_d = LDS; //16KB, 192bit jumps
